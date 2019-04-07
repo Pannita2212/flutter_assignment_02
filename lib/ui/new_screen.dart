@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import './todo2.dart';
+import './todo.dart';
 
 class NewTask extends StatefulWidget {
   @override
@@ -8,8 +8,8 @@ class NewTask extends StatefulWidget {
   }
 }
 
+
 class NewTaskState extends State<NewTask> {
-  TodoProvider todo = TodoProvider();
   final _formKey = GlobalKey<FormState>();
   String txt;
   final txtControl = TextEditingController();
@@ -27,14 +27,16 @@ class NewTaskState extends State<NewTask> {
           child: Column(
             children: <Widget>[
               TextFormField(
+                controller: txtControl,
                   decoration: InputDecoration(labelText: "Subject"),
                   validator: (value) {
                     if (value.isEmpty) {
                       return "Please Fill Subject";
-                    }Navigator.pop(context);
+                    }else{
+                      txt = value;
+                    }
                   }),
-              Row(
-                children: <Widget>[
+              Row(children: <Widget>[
                   Expanded(
                     flex: 1,
                     child: RaisedButton(
@@ -43,13 +45,11 @@ class NewTaskState extends State<NewTask> {
                         if (!_formKey.currentState.validate()) {
                           return "Please Fill Subject";
                         } else {
-                          await todo.open("todo.db");
-                        Todo data = Todo();
-                        data.title = txt;
-                        data.done = false;
-                        await todo.insert(data);
-                        txtControl.text = "";
-
+                          Todo rnd = Todo(title: txt, done: 0);
+                          await TodoProvider.db.newTodo(rnd);
+                          setState(() {
+                            
+                          });
                           Navigator.pop(context);
                         }
                       },

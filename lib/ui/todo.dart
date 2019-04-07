@@ -1,103 +1,150 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
 
-final String tableTodo = "todo";
-final String columnId = "id";
-final String columnBody = "body";
-final String columnShow = "show";
-
-class Todo {
-  int id;
-  String body;
-  bool show;
-
-  Todo({String body}){
-    this.body = body; this.show = false;
-  }
-
-  Todo.fromMap(Map<String, dynamic> map) {
-    this.id = map[columnId];
-    this.body = map[columnBody];
-    this.show = map[columnShow] == 1;
-  }
-
-  Map<String, dynamic> toMap() {
-    Map<String, dynamic> map = {
-      columnBody: body,
-      columnShow: show == true ? 1 : 0
-    };
-
-    if (id != null) {
-      map[columnId] = id;
-    }return map;
-  }
-
+Todo todoFromJson(String str) {
+    final jsonData = json.decode(str);
+    return Todo.fromMap(jsonData);
+}
+String todoToJson(Todo data) {
+    final dyn = data.toMap();
+    return json.encode(dyn);
 }
 
-class TodoProvider {
-  Database db;
-  Database get database => this.db;
+class Todo {
+    int id;
+    String title;
+    int done;
 
-  Future open({String path = "todo.db"}) async {
-    String dbPath = await getDatabasesPath();
-    path = dbPath+path;
-    db = await openDatabase(path, version: 1,
+    Todo({
+        this.id,
+        this.title,
+        this.done,
+    });
+
+    factory Todo.fromMap(Map<String, dynamic> json) => new Todo(
+        id: json["id"],
+        title: json["title"],
+        done: json["done"],
+    );
+
+    Map<String, dynamic> toMap() => {
+        "id": id,
+        "title": title,
+        "done": done,
+    };
+}
+
+
+
+
+class TodoProvider {
+  TodoProvider._();
+  static final TodoProvider db = TodoProvider._();
+
+  Database _db;
+
+  Future<Database> get database async {
+    if (_db != null) return _db;
+    _db = await initDB();
+    return _db;
+  }
+
+  initDB() async {
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    String path = join(documentsDirectory.path, "TestDB.db");
+    return await openDatabase(path, version: 1, onOpen: (db) {},
         onCreate: (Database db, int version) async {
-      await db.execute('''
-      create table $tableTodo (
-        $columnId integer primary key autoincrement,
-        $columnBody text not null,
-        $columnShow integer not null)
-      ''');
+      await db.execute("CREATE TABLE Todo ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "title TEXT,"
+          "done integer"
+          ")");
     });
   }
 
-  Future<Todo> insert(Todo todo) async {
-    todo.id = await db.insert(tableTodo, todo.toMap());
-    return todo;
+  newTodo(Todo newTodo) async {
+    final db = await database;
+    var raw = await db.rawInsert(
+        "INSERT Into Todo (id,title,done)"
+        " VALUES (?,?,?)",
+        [newTodo.id, newTodo.title, newTodo.done]);
+    return raw;
   }
 
-  Future<Todo> getTodo(int id) async {
-    List<Map<String, dynamic>> map = await db.query(tableTodo,
-        columns: [columnId, columnBody, columnShow],
-        where: '$columnId = ?',
-        whereArgs: [id]);
-    if(map.length > 0){
-      return new Todo.fromMap(map.first);
-    }else{
-      return null;
-    }
+  blockOrUnblock(Todo todo) async {
+    final db = await database;
+    Todo done = Todo(
+        id: todo.id,
+        title: todo.title,
+        done: todo.done ==1 ? 0:1);
+    var res = await db.update("Todo", done.toMap(),
+        where: "id = ?", whereArgs: [todo.id]);
+    return res;
   }
 
-  Future<int> delete(int id) async {
-    return await db.delete(tableTodo,
-    where: '$columnId = ?',
-    whereArgs: [id]);
+  updateTodo(Todo newTodo) async {
+    final db = await database;
+    var res = await db.update("Todo", newTodo.toMap(),
+        where: "id = ?", whereArgs: [newTodo.id]);
+    return res;
   }
 
-  Future<int> update(Todo todo) async {
-    await db.update(tableTodo, todo.toMap(),
-    where: '$columnId = ?',
-    whereArgs: [todo.id]);
+  getTodo(int id) async {
+    final db = await database;
+    var res = await db.query("Todo", where: "id = ?", whereArgs: [id]);
+    return res.isNotEmpty ? Todo.fromMap(res.first) : null;
   }
 
-// +++
-  Future<List<Todo>> allTask() async{
-    List<Map<String, dynamic>> data = await this.db.query(
-      tableTodo, where: '$columnShow = 1');
-
-    return data.map((e) => Todo.fromMap(e)).toList();
-  }
-  Future<List<Todo>> allComplete() async{
-    List<Map<String, dynamic>> data = await this.db.query(
-      tableTodo, where: '$columnShow = 1');
-
-    return data.map((e) => Todo.fromMap(e)).toList();
-  }
-  void delAll() async{
-    await this.db.delete(tableTodo, where: '$columnShow = 1');
+  Future<List<Todo>> getdoneTodos() async {
+    final db = await database;
+    print("works");
+    var res = await db.query("Todo", where: "done = ? ", whereArgs: [1]);
+    List<Todo> list =
+        res.isNotEmpty ? res.map((c) => Todo.fromMap(c)).toList() : [];
+    return list;
   }
 
+  Future<List<Todo>> getAllTodos() async {
+    final db = await database;
+    var res = await db.query("Todo");
+    List<Todo> list =
+        res.isNotEmpty ? res.map((c) => Todo.fromMap(c)).toList() : [];
+    return list;
+  }
 
-  Future close() async => db.close();
+  deleteTodo(int id) async {
+    final db = await database;
+    return db.delete("Todo", where: "id = ?", whereArgs: [id]);
+  }
+
+  deleteAll() async {
+    final db = await database;
+    db.rawDelete("Delete * from Todo");
+  }
+
+// add method
+  Future<List<Todo>> getTask() async {
+    final db = await database;
+    int done = 0;
+    var res = await db.query("Todo", where: "done = ? ", whereArgs: [done]);
+    List<Todo> list =
+        res.isNotEmpty ? res.map((e) => Todo.fromMap(e)).toList() : [];
+    return list;
+  }
+  Future<List<Todo>> getComplete() async {
+    final db = await database;
+    int done = 1;
+    var res = await db.query("Todo", where: "done = ? ", whereArgs: [done]);
+    List<Todo> list =
+        res.isNotEmpty ? res.map((e) => Todo.fromMap(e)).toList() : [];
+    return list;
+  }
+  delAll() async {
+    final db = await database;
+    return db.delete("Todo", where: "done = ?", whereArgs: [1]);
+  }
 }
